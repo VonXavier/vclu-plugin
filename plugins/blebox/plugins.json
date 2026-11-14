@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "VonXavier plugins",
+  "namespace": "vonxavier",
+  "description": "BleBox dla vclu",
+  "author": "VonXavier",
+  "url": "https://github.com/VonXavier/vclu-plugin",
+  "plugins": [
+    {
+      "id": "blebox",
+      "name": "BleBox",
+      "version": "0.1.1",
+      "description": "BleBox switchBox po lokalnym HTTP",
+      "author": "VonXavier",
+      "path": "plugins/blebox",
+      "tags": ["blebox", "relay"]
+    }
+  ]
+}
