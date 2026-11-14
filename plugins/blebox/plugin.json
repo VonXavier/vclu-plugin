@@ -1,0 +1,67 @@
+{
+  "id": "blebox",
+  "name": "BleBox",
+  "version": "0.1.1",
+  "description": "BleBox switchBox po lokalnym HTTP: wykrywanie po id urzadzenia, polling, sterowanie",
+  "tags": ["blebox", "relay"],
+  "files": ["init.lua"],
+
+  "configSchema": [
+    {
+      "key": "subnet",
+      "type": "string",
+      "label": "Podsiec do skanowania (3 pierwsze oktety)",
+      "description": "np. 192.168.1 - plugin sprawdzi adresy od rangeFrom do rangeTo",
+      "default": "192.168.1"
+    },
+    {
+      "key": "rangeFrom",
+      "type": "number",
+      "label": "Skan od (ostatni oktet)",
+      "default": "1"
+    },
+    {
+      "key": "rangeTo",
+      "type": "number",
+      "label": "Skan do (ostatni oktet)",
+      "default": "254"
+    },
+    {
+      "key": "hosts",
+      "type": "string",
+      "label": "Reczne adresy IP (opcjonalnie, po przecinku)",
+      "description": "Sprawdzane przed skanem podsieci, np. 192.168.1.18,192.168.1.19"
+    },
+    {
+      "key": "interval",
+      "type": "number",
+      "label": "Odpytywanie stanu (sekundy)",
+      "default": "2"
+    },
+    {
+      "key": "rescanCooldown",
+      "type": "number",
+      "label": "Minimalny odstep miedzy skanami (sekundy)",
+      "default": "30"
+    },
+    {
+      "key": "scanConcurrency",
+      "type": "number",
+      "label": "Rownolegle zapytania podczas skanu",
+      "default": "10"
+    }
+  ],
+
+  "exports": {
+    "objects": {
+      "status": {"type": "BleBoxStatus"}
+    },
+    "events": [
+      {"name": "blebox:changed", "description": "Zmiana stanu przekaznika: {id, relay, state}"}
+    ]
+  },
+
+  "docs": [
+    {"title": "README", "file": "README.md"}
+  ]
+}
