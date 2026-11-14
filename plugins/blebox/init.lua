@@ -1,15 +1,15 @@
--- BleBox plugin v0.1.1
+-- BleBox plugin v0.1.2
 -- Urzadzenia z API "switchBox" (switchBox, switchBoxD, ...) po lokalnym HTTP.
 --  * tozsamosc urzadzenia = "id" z /api/device/state (nie IP)
 --  * IP trzymany w KV; po bledach plugin skanuje podsiec i szuka tego samego id
 --  * kazdy przekaznik = plugin:control (expose -> dashboard/HomeKit/HA)
 --  * zmiany stanu: zdarzenie "blebox:changed" {id, relay, state}
---  * plugin NIE zmienia obiektow vclu (np. DOUT) - most robi sie w user.lua,
+--  * plugin NIE zmienia obiektow vclu (np. DOUT) - most robi sie w katalogu modules/ vclu,
 --    patrz examples/blebox-bridge.lua
 
 local plugin = Plugin:new("blebox", {
     name = "BleBox",
-    version = "0.1.1",
+    version = "0.1.2",
     description = "BleBox switchBox API: lokalne HTTP, wykrywanie po id"
 })
 
@@ -113,7 +113,7 @@ local function applyRelays(dev, list, force)
                 if changed then
                     state.lastUpdate = os.time()
                     local c = plugin:get(ctlName(dev.id, idx))
-                    if c then c:notify() end
+                    if c and type(c.notify) == "function" then c:notify() end
                     plugin:emit("blebox:changed", { id = dev.id, relay = idx, state = st })
                 end
             end
@@ -177,9 +177,10 @@ local function register(d, ip, done)
         timeout = cfg.timeout,
         parseJson = "success"
     }, function(resp)
+        -- done() od razu, zeby ewentualny blad nizej nie zawiesil skanu
+        done()
         if resp.err or not resp.ok or type(resp.json) ~= "table" or type(resp.json.relays) ~= "table" then
             plugin:log("warn", "BleBox " .. id .. " (" .. ip .. "): brak stanu przekaznikow")
-            done()
             return
         end
 
@@ -210,7 +211,6 @@ local function register(d, ip, done)
             plugin:log("info", "BleBox " .. id .. " (" .. tostring(d.product) .. ") @ " .. ip .. ", przekazniki: " .. dev.count)
         end
         publishStatus()
-        done()
     end)
 end
 
@@ -367,14 +367,14 @@ plugin:onInit(function(config)
                     timeout = cfg.timeout,
                     parseJson = "success"
                 }, function(resp)
+                    left = left - 1
+                    if left == 0 then done() end
                     if resp.err or not resp.ok or type(resp.json) ~= "table" or type(resp.json.relays) ~= "table" then
                         markFail(dev)
                     else
                         dev.fails = 0
                         applyRelays(dev, resp.json.relays, false)
                     end
-                    left = left - 1
-                    if left == 0 then done() end
                 end)
             end
         end,

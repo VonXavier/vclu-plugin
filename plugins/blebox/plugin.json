@@ -1,7 +1,7 @@
 {
   "id": "blebox",
   "name": "BleBox",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "BleBox switchBox po lokalnym HTTP: wykrywanie po id urzadzenia, polling, sterowanie",
   "tags": ["blebox", "relay"],
   "files": ["init.lua"],

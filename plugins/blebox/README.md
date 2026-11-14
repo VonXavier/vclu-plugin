@@ -1,4 +1,4 @@
-# BleBox plugin (vCLU) v0.1.1
+# BleBox plugin (vCLU) v0.1.2
 
 Lokalna obsługa urządzeń BleBox z API `switchBox` (switchBox, switchBoxD, ...). Bez chmury, bez zmiany firmware.
 
@@ -11,7 +11,7 @@ Lokalna obsługa urządzeń BleBox z API `switchBox` (switchBox, switchBoxD, ...
 - Każdy przekaźnik to `plugin:control` o nazwie `relay_<id>_<n>`.
 - Zmiany stanu emituje jako zdarzenie `blebox:changed` (`{id, relay, state}`).
 
-Plugin **nie zmienia obiektów vclu** (to celowe zabezpieczenie sandboxa). Połączenie z DOUT w Object Managerze robi się w `user.lua`, patrz niżej.
+Plugin **nie zmienia obiektów vclu** (to celowe zabezpieczenie sandboxa). Połączenie z DOUT w Object Managerze robi się we własnym pliku w `modules/`, patrz niżej.
 
 ## Instalacja
 
@@ -21,7 +21,7 @@ Plugin **nie zmienia obiektów vclu** (to celowe zabezpieczenie sandboxa). Poł�
 ```json
 {
   "id": "@vonxavier/blebox",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "enabled": true,
   "config": {
     "subnet": "192.168.1"
@@ -63,18 +63,18 @@ end)
 
 ## Most do OM (DOUT z modułu wirtualnego)
 
-W wizardzie dodaj moduł wirtualny (np. RELAY4) i wybierz wolne DOUT-y. Potem w `user.lua` użyj przykładu z `examples/blebox-bridge.lua`: zmiana DOUT (Grenton, aplikacja) idzie do BleBoxa przez `bb:setRelay()`, a zdarzenie `blebox:changed` ustawia DOUT.
+W wizardzie dodaj moduł wirtualny (np. RELAY4) i wybierz wolne DOUT-y. Potem dodaj w panelu (edytor Lua) nowy plik w `modules/`, np. `blebox-bridge.lua`, z przykładu `examples/blebox-bridge.lua`. Nie używaj `user.lua`, bo to plik OM nadpisywany przy synchronizacji: zmiana DOUT (Grenton, aplikacja) idzie do BleBoxa przez `bb:setRelay()`, a zdarzenie `blebox:changed` ustawia DOUT.
 
 ## Plan testów
 
 1. Włącz plugin, w logach powinno być `Skan podsieci ...` i `BleBox ee64c9c7496d (switchBoxD) @ ..., przekazniki: 2`.
 2. Przełącz przekaźnik w apce BleBox i sprawdź, czy zmienia się obiekt `dev_<id>` w rejestrze (do 2 s) i czy przychodzi `blebox:changed`.
-3. Dodaj most z `user.lua` i przełącz powiązany DOUT w OM, przekaźnik powinien kliknąć.
+3. Dodaj most z `modules/` i przełącz powiązany DOUT w OM, przekaźnik powinien kliknąć.
 4. Zmień IP urządzenia (restart routera lub nowa dzierżawa DHCP) i sprawdź, czy plugin odnajduje je sam.
 
-## Znane ograniczenia v0.1.1
+## Znane ograniczenia
 
 - Obsługiwane tylko API typu `switchBox`. Rolety (`shutterBox`), światła (`wLightBox`) i czujniki to kolejne wersje.
 - Brak obsługi BleBox z hasłem (Basic Auth).
 - Skan nie ma znanych limitów zapytań HTTP w vclu. Jeśli zalewa logi, zawęź `rangeTo` albo podaj `hosts`.
-- Jeśli `user.lua` załaduje się, zanim plugin znajdzie urządzenie, stan początkowy dojdzie przez `blebox:changed` przy pierwszym wykryciu.
+- Jeśli plik z mostem załaduje się, zanim plugin znajdzie urządzenie, stan początkowy dojdzie przez `blebox:changed` przy pierwszym wykryciu.
