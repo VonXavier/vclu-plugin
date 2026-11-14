@@ -12,7 +12,7 @@
       "version": "0.1.1",
       "description": "BleBox switchBox po lokalnym HTTP",
       "author": "VonXavier",
-      "path": "plugins/blebox",
+      "path": "vclu-plugin/blebox",
       "tags": ["blebox", "relay"]
     }
   ]
