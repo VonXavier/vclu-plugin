@@ -9,11 +9,14 @@
     {
       "id": "blebox",
       "name": "BleBox",
-      "version": "0.1.2",
-      "description": "BleBox switchBox po lokalnym HTTP",
+      "version": "0.2.0",
+      "description": "BleBox switchBox/switchBoxD po lokalnym HTTP (fabryka create)",
       "author": "VonXavier",
       "path": "plugins/blebox",
-      "tags": ["blebox", "relay"]
+      "tags": [
+        "blebox",
+        "relay"
+      ]
     }
   ]
 }
