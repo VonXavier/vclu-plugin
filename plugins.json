@@ -15,5 +15,16 @@
       "path": "plugins/blebox",
       "tags": ["blebox", "relay"]
     }
+    {
+      "id": "inpost",
+      "name": "InPost Paczki",
+      "version": "0.1.0",
+      "description": "Powiadomienia o paczkach InPost: nowa, gotowa do odbioru, doręczona",
+      "author": "vonxavier",
+      "path": "plugins/inpost",
+      "tags": ["inpost", "parcels", "factory"],
+      "requires": { "vclu": ">=1.0.0" },
+      "tag": "inpost-v0.1.0"
+    }
   ]
 }
