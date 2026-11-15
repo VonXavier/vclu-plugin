@@ -1,104 +1,140 @@
-# BleBox plugin (vCLU) v0.2.0
+# InPost Paczki
 
-Fabryka obiektów dla urządzeń BleBox z API `switchBox` (switchBox, switchBoxD) po lokalnym HTTP. Bez chmury i bez zmiany firmware. Działa tak jak `@vclu/tasmota-switch`: plugin nie ma własnej konfiguracji, a urządzenia tworzysz w kodzie przez `create()`. Dzięki temu możesz mieć dowolnie wiele urządzeń.
+Fabryka obiektów, które śledzą paczki InPost przez publiczne API śledzenia
+(ShipX). Nie trzeba klucza ani konta. Plugin pilnuje statusów i wywołuje
+zdarzenia, a co z nimi zrobić (Grenton, alarm, powiadomienie), decydujesz w swoim module.
 
-- znajduje urządzenie po **Identyfikatorze urządzenia** (z aplikacji BleBox), więc adres IP nie jest potrzebny, a zmiana adresu przez DHCP niczego nie psuje,
-- jeden obiekt = jeden przekaźnik (switchBoxD ma dwa: `relay = 0` i `relay = 1`),
-- stan odświeża co 2 s, a zmiany z aplikacji BleBox trafiają do vclu,
-- obiekt działa z `expose()` (HA, HomeKit) i można go połączyć z DOUT-em z Object Managera (most).
-
-## Szybki start
-
-1. **Zainstaluj plugin** z repozytorium w panelu vclu. Konfiguracja nie jest potrzebna (`"config": {}`).
-2. **Sprawdź Identyfikator urządzenia** w aplikacji BleBox (Szczegóły, aktualizacja i pomoc → *Identyfikator urządzenia*), np. `ee64c9c7496d`.
-3. **Dodaj plik w `modules/`**, np. `blebox-bridge.lua`, z `examples/blebox-bridge.lua` i wpisz swoje urządzenia (nie używaj `user.lua`, bo to plik OM nadpisywany przy synchronizacji).
-4. **Przeładuj Lua**. W logu pojawi się `Created: ...`, a po chwili `BleBox <id> online @ <adres>`.
-
-Jeśli Twoja sieć to nie `192.168.1.x`, dodaj w module `bb:setSubnet("192.168.0")` (adres jest potrzebny tylko do znalezienia urządzeń).
+API śledzenia wymaga numeru przesyłki, a InPost nie ma publicznego API, które
+samo wykryje paczkę wysłaną na Twój numer. Numer trafia do pluginu na trzy
+sposoby: z maili z Gmaila (niżej), przez `track()` / `numbers` w `create` albo
+przez MQTT na wbudowanym brokerze vCLU (temat `vclu/inpost/<id>/add`, treść to numer).
 
 ## Użycie
 
-```lua
-local bb = Plugin.getPlugin("@vonxavier/blebox")
-
--- jeden przekaźnik (switchBox) albo wybrany przekaźnik switchBoxD
-local lampa = bb:create({ deviceId = "ee64c9c7496d", relay = 0, name = "Lampa" })
-
-lampa:on()
-lampa:off()
-lampa:toggle()
-lampa:on(function(ok, err) print(ok) end)   -- opcjonalny callback
-
-if lampa:isOn() then print("włączona") end
-lampa:onChange(function(new, old) print(old, "->", new) end)
-
-expose(lampa, "switch", { name = "Lampa" })   -- HA / HomeKit
-```
-
-Przy pierwszym odczycie stanu po starcie `onChange` dostaje `old = nil`.
-
-## Most do Object Managera (DOUT)
-
-Plugin nie może sam zmieniać obiektów vclu (zabezpieczenie sandboxa), dlatego most jest w Twoim module. Przykład w `examples/blebox-bridge.lua`:
+Plugin niczego nie ustawia sam: wtyczki nie zmieniają obiektów vCLU. Wskaźnik
+robisz w swoim module (`user.lua` albo `modules/`), tak jak w pluginie RCE:
 
 ```lua
-bridge(lampa, "CLU221062464->DOU6243")
+local inpost = Plugin.getPlugin("@vonxavier/inpost")
+
+local paczki = inpost:create({
+    id = "paczki",
+    numbers = { "520000000000000000000000" },
+})
+
+-- ile paczek czeka w paczkomacie
+local czeka = VirtualNumber:new("paczki_czeka")
+local function odswiez() czeka:setValue(paczki:readyCount()) end
+paczki:on("ready", odswiez)
+paczki:on("delivered", odswiez)
+odswiez()   -- po restarcie stan z KV jest już po create(), przed on()
+
+-- nowa paczka: pierwszy status, jaki widzimy
+paczki:on("new", function(p)
+    print("Nowa paczka " .. p.number .. ": " .. p.label)
+end)
+
+-- kolejna paczka w locie
+paczki:track("520000000000000000000001")
 ```
 
-DOUT dodajesz w wizardzie vclu (moduł wirtualny, np. RELAY4) i synchronizujesz z OM. Id kopiujesz z OM, zapis ze strzałką działa. Zmiana DOUT w OM (lub w aplikacji) steruje BleBoxem, a zmiana w BleBoxie ustawia DOUT. Gdy komenda się nie powiedzie, DOUT wraca do prawdziwego stanu.
+Żeby wskaźnik był widoczny w Grentonie, wystaw go przez `expose()` albo ustaw
+wolny DOUT z modułu wirtualnego w `onChange`/zdarzeniu, jak w moście z
+innymi pluginami (`dout:setValue(...)` w callbacku `on()`). Nazwy obiektów
+w przykładach są przykładowe.
 
-## Opcje `create()`
+## Numery z Gmaila
 
-| Opcja | Domyślnie | Opis |
+Plugin co kilka minut szuka w Gmailu maili od InPost, wyciąga z nich 24-cyfrowe
+numery przesyłek i zaczyna je śledzić. Czyta pocztę tylko do odczytu
+(`gmail.readonly`), a id przetworzonych maili trzyma w KV, żeby nie czytać ich drugi raz.
+
+```lua
+local paczki = inpost:create({
+    id = "paczki",
+    gmail = {
+        clientId = "....apps.googleusercontent.com",
+        clientSecret = "...",
+        refreshToken = "...",
+        query = "from:inpost.pl newer_than:3d",  -- opcjonalnie
+        interval = 300,                           -- opcjonalnie, sekundy
+    },
+})
+```
+
+Maile ze sklepów, które podają numer InPost, złapiesz własnym `query`, np.
+`from:(inpost.pl OR sklep.pl) newer_than:3d`. Paczki już doręczone, o których
+są stare maile z ostatnich dni, ogłoszą `new` i zaraz `delivered`, więc na początek
+zawęź `newer_than`.
+
+### Jednorazowa konfiguracja Google
+
+1. W [Google Cloud Console](https://console.cloud.google.com) utwórz projekt i włącz **Gmail API**.
+2. **Ekran zgody OAuth**: typ *External*, dodaj siebie jako użytkownika testowego.
+   Potem przełącz aplikację na **In production**. Aplikacja w trybie *Testing*
+   dostaje refresh token ważny tylko 7 dni, a w trybie produkcyjnym do użytku
+   osobistego wystarczy kliknąć „Advanced → Go to app" przy zgodzie.
+3. **Dane logowania → Utwórz → Identyfikator klienta OAuth**, typ *Aplikacja
+   komputerowa*. Skopiuj `clientId` i `clientSecret`.
+4. Refresh token wygenerujesz w [OAuth Playground](https://developers.google.com/oauthplayground):
+   w ustawieniach (ikona koła zębatego) zaznacz *Use your own OAuth credentials*
+   i wklej swoje dane, w kroku 1 wybierz zakres
+   `https://www.googleapis.com/auth/gmail.readonly`, zaloguj się,
+   a w kroku 2 kliknij *Exchange authorization code for tokens*.
+   Skopiuj `refresh_token`.
+
+Dane trzymaj w `modules/`, nie w repozytorium.
+
+## Zdarzenia
+
+| Zdarzenie | Kiedy | Argumenty |
 |---|---|---|
-| `deviceId` | | Identyfikator urządzenia z aplikacji BleBox (zalecane) |
-| `relay` | `0` | numer przekaźnika |
-| `name` | `BleBox <id> #<relay>` | nazwa wyświetlana |
-| `id` | `blebox_<deviceId>_<relay>` | stały identyfikator dla `expose()` (po pierwszym `expose()` nie zmieniaj) |
-| `ip` | | podpowiedź adresu. Bez `deviceId` urządzenie nie przetrwa zmiany IP |
-| `subnet` | `192.168.1` | podsieć do wyszukiwania dla tego urządzenia |
-| `polling` | `true` | odpytywanie stanu |
-| `pollInterval` | `2` | interwał w sekundach |
+| `new` | śledzona paczka dostała pierwszy status | `parcel` |
+| `status` | status się zmienił | `parcel`, `previous` |
+| `ready` | status `ready_to_pickup` | `parcel` |
+| `delivered` | status `delivered` | `parcel` |
 
-Wymagane jest `deviceId` albo `ip`. `bb:create("ee64c9c7496d")` to skrót dla samego `deviceId`.
+`parcel` to `{ number, status, label, machine }`. `on()` zwraca funkcję
+wyrejestrowującą callback.
 
 ## API
 
-Obiekt (jeden przekaźnik): `on([cb])`, `off([cb])`, `toggle([cb])`, `refresh()`, `isOn()`, `isOnline()`, `getValue()`, `getState()`, `getId()`, `getDeviceId()`, `getRelay()`, `onChange(cb)` (zwraca funkcję wyrejestrowującą), `setName()`, `setId()`, `setIp()`, `setPolling(enabled, interval)`. Oraz interfejs `expose()`: `get`, `set`, `switchOn`, `switchOff`, `on_event`.
+| Metoda | Opis |
+|---|---|
+| `track(numer)`, `untrack(numer)` | dodaje albo usuwa paczkę; `false` dla pustego albo powtórzonego numeru |
+| `on(event, fn)` | zdarzenia j.w. |
+| `count()`, `readyCount()` | ile paczek śledzimy, ile czeka na odbiór |
+| `list()`, `getState()` | lista paczek i stan |
+| `sensor()` | sensor z liczbą paczek do odbioru (`<id>_ready`), do `expose()` |
+| `refresh()`, `refreshMail()` | odpytuje InPost albo Gmaila od razu |
 
-Plugin: `bb:create(opts)`, `bb:setSubnet("192.168.0")`, `bb:scan([subnet])` (ręczny skan, wynik w logu), `bb:getDevices()`, `bb:getDiscovered()`.
+Opcje `create`: `id` (domyślnie `"inpost"`), `numbers`, `interval` w sekundach
+(domyślnie 600, minimum 60), `polling` (`false` wyłącza pobieranie, do testów),
+`gmail` (patrz wyżej).
+
+## Publikacja w repozytorium
+
+Wpis do `plugins.json` (obok pozostałych pluginów w repo, id bez namespace,
+tak jak w repo autora):
+
+```json
+{
+  "id": "inpost",
+  "name": "InPost Paczki",
+  "version": "0.1.0",
+  "description": "Powiadomienia o paczkach InPost: nowa, gotowa do odbioru, doręczona",
+  "author": "vonxavier",
+  "path": "plugins/inpost",
+  "tags": ["inpost", "parcels", "factory"],
+  "requires": { "vclu": ">=1.0.0" },
+  "tag": "inpost-v0.1.0"
+}
+```
 
 ## Jak to działa
 
-- Skan podsieci (`GET /api/device/state` po adresach `.1`–`.254`) odpala się tylko wtedy, gdy urządzenie nie ma znanego adresu albo przestało odpowiadać (3 błędy z rzędu). Ostatni adres jest zapamiętany, więc zwykły start jest szybki.
-- Co 60 s plugin sprawdza, czy pod adresem nadal jest to samo urządzenie (po id), żeby nie sterować cudzym BleBoxem po zmianie adresu.
-- Jedno urządzenie = jedno odpytywanie, niezależnie od liczby przekaźników.
-
-## Sprawdzanie w logu
-
-```
-sudo journalctl -u vclu -f | grep -i blebox
-```
-
-| Objaw w logu | Przyczyna i rozwiązanie |
-|---|---|
-| `skipping @vonxavier/blebox: not configured` | Wpis pluginu w `.vclu.json` nie ma bloku `config`. Ta wersja ma `"config": {}` w `plugin.json`, więc po aktualizacji powinno przejść. Jeśli nie, dopisz do wpisu `"config": {}` przy zatrzymanym vclu. |
-| `blebox-bridge: plugin @vonxavier/blebox niedostepny` | Plugin nie jest zainstalowany albo został pominięty (wiersz wyżej). |
-| `Skan 192.168.1.x (...) zakonczony, znaleziono: 0` | Zła podsieć (`bb:setSubnet(...)`), albo vclu i BleBox są w różnych sieciach. |
-| `nie znaleziono DOUT ...` | Nieprawidłowe id DOUT-a. Sprawdź w OM i czy moduł wirtualny jest w wizardzie i zsynchronizowany. |
-| `Znaleziono BleBox <id> ...` | Skan znalazł urządzenie. Użyj tego id w `create({ deviceId = ... })`. |
-
-Nie znasz Identyfikatora? Wywołaj w module `bb:scan()` i zajrzyj do logu.
-
-## Zmiany względem 0.1.x
-
-- plugin nie ma już własnej konfiguracji (`subnet`, `bindings`...): urządzenia konfiguruje się w kodzie przez `create()`,
-- zniknęły obiekty `status`/`dev_*` i zdarzenie `blebox:changed`: zamiast nich jest `onChange()` na obiekcie,
-- most w `modules/` trzeba zastąpić nową wersją z `examples/blebox-bridge.lua`,
-- blok `config` dopisany ręcznie w `.vclu.json` można zostawić (jest ignorowany).
-
-## Ograniczenia
-
-- Obsługiwane tylko API typu `switchBox`. Rolety (`shutterBox`), światła (`wLightBox`) i czujniki to kolejne wersje.
-- Brak obsługi BleBox z hasłem (Basic Auth).
-- Nowe urządzenie trzeba dodać w kodzie (`create()`), plugin nie dodaje ich sam.
+- Co `interval` plugin pyta o każdą śledzoną paczkę.
+- Numery i ostatnie statusy leżą w KV wtyczki, więc po restarcie vCLU nie ogłasza
+  drugi raz tego, co już było.
+- Paczka w statusie końcowym (doręczona, zwrot, anulowana) znika z listy przy
+  następnym obiegu.
