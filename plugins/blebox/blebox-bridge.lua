@@ -8,7 +8,7 @@
 --
 -- DEBUG = true: wypisuje (print) kazdy krok. Szukaj linii "blebox-bridge:" w logach aplikacji.
  
-local DEBUG = true
+local DEBUG = false
  
 local function dbg(msg)
     if DEBUG then print("blebox-bridge: " .. msg) end
