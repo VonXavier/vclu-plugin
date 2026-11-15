@@ -23,8 +23,7 @@
       "author": "vonxavier",
       "path": "plugins/inpost",
       "tags": ["inpost", "parcels", "factory"],
-      "requires": { "vclu": ">=1.0.0" },
-      "tag": "inpost-v0.1.0"
+      "requires": { "vclu": ">=1.0.0" }
     }
   ]
 }
