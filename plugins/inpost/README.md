@@ -112,24 +112,6 @@ Opcje `create`: `id` (domyślnie `"inpost"`), `numbers`, `interval` w sekundach
 (domyślnie 600, minimum 60), `polling` (`false` wyłącza pobieranie, do testów),
 `gmail` (patrz wyżej).
 
-## Publikacja w repozytorium
-
-Wpis do `plugins.json` (obok pozostałych pluginów w repo, id bez namespace,
-tak jak w repo autora):
-
-```json
-{
-  "id": "inpost",
-  "name": "InPost Paczki",
-  "version": "0.1.0",
-  "description": "Powiadomienia o paczkach InPost: nowa, gotowa do odbioru, doręczona",
-  "author": "vonxavier",
-  "path": "plugins/inpost",
-  "tags": ["inpost", "parcels", "factory"],
-  "requires": { "vclu": ">=1.0.0" },
-  "tag": "inpost-v0.1.0"
-}
-```
 
 ## Jak to działa
 
