@@ -138,3 +138,4 @@ tak jak w repo autora):
   drugi raz tego, co już było.
 - Paczka w statusie końcowym (doręczona, zwrot, anulowana) znika z listy przy
   następnym obiegu.
+  
