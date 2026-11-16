@@ -18,9 +18,9 @@
     {
       "id": "inpost",
       "name": "InPost Paczki",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Powiadomienia o paczkach InPost: nowa, gotowa do odbioru, doręczona",
-      "author": "vonxavier",
+      "author": "VonXavier",
       "path": "plugins/inpost",
       "tags": ["inpost", "parcels", "factory"],
       "requires": { "vclu": ">=1.0.0" }
