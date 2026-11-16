@@ -207,6 +207,26 @@ answers["600000000000000000000002"] = "created"
 env.tick("inpost_mail_poczta")
 check("a new mail adds a new parcel", mp:count() == 2)
 
+-- big mail bodies: the decoder must not overflow the stack (vCLU runtime limit)
+local sizes = { 1, 100, 199, 200, 201, 5000, 40000, 40001, 60000 }
+for i, n in ipairs(sizes) do
+    local number = string.format("7%023d", i)
+    mails["big" .. i] = { snippet = "x", payload = { body = { data = b64url(string.rep("ab ", n) .. number) } } }
+end
+local before = mp:count()
+env.tick("inpost_mail_poczta")
+check("long mail bodies are decoded in full, number at the end found", mp:count() == before + #sizes)
+
+-- one broken mail must not stall the check, and is not retried forever
+local broken = setmetatable({}, { __index = function() error("boom") end })
+mails["zbroken"] = { snippet = "x", payload = broken }
+local _, brokenRes = env.tick("inpost_mail_poczta")
+check("a broken mail does not fail the whole check", brokenRes == nil or brokenRes.err == nil)
+check("a broken mail is reported", mp:getState().mailError ~= nil and tostring(mp:getState().mailError):find("zbroken", 1, true) ~= nil)
+local getsBefore = mailCalls.get
+env.tick("inpost_mail_poczta")
+check("a broken mail is marked seen, not fetched again", mailCalls.get == getsBefore)
+
 tokenOk = false
 mp._tokenValue = nil
 local _, bad = env.tick("inpost_mail_poczta")
@@ -216,9 +236,10 @@ tokenOk = true
 
 -- MQTT add
 check("MQTT add topic is subscribed", type(subs["vclu/inpost/poczta/add"]) == "function")
-answers["700000000000000000000009"] = "confirmed"
-subs["vclu/inpost/poczta/add"]("vclu/inpost/poczta/add", "700000000000000000000009")
-check("MQTT add tracks the parcel", mp:count() == 3)
+answers["800000000000000000000009"] = "confirmed"
+local c0 = mp:count()
+subs["vclu/inpost/poczta/add"]("vclu/inpost/poczta/add", "800000000000000000000009")
+check("MQTT add tracks the parcel", mp:count() == c0 + 1)
 
 plugin._cleanup()
 check("cleanup stops pollers", env.pollers["inpost_paczki"].started == false and env.pollers["inpost_mail_poczta"].started == false)

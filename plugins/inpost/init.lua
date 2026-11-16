@@ -30,7 +30,7 @@
 
 local plugin = Plugin:new("inpost", {
     name = "InPost Paczki",
-    version = "0.1.0",
+    version = "0.1.1",
     description = "Factory for InPost parcel tracking"
 })
 
@@ -69,10 +69,26 @@ local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 local B64_INDEX = {}
 for i = 1, #B64 do B64_INDEX[B64:sub(i, i)] = i - 1 end
 
+-- table.concat over tens of thousands of pieces overflows the Lua stack in the
+-- vCLU runtime ("registry overflow"), so long lists are joined in blocks.
+local function concatLarge(list)
+    while #list > 200 do
+        local merged = {}
+        for i = 1, #list, 200 do
+            merged[#merged + 1] = table.concat(list, "", i, math.min(i + 199, #list))
+        end
+        list = merged
+    end
+    return table.concat(list)
+end
+
 -- Gmail gives bodies as base64url. Plain arithmetic, no bit operators, so it
 -- runs on any Lua the runtime embeds.
 local function b64urlDecode(data)
-    data = tostring(data or ""):gsub("-", "+"):gsub("_", "/"):gsub("[^%w%+/]", "")
+    data = tostring(data or "")
+    data = data:gsub("%-", "+")
+    data = data:gsub("_", "/")
+    data = data:gsub("[^%w%+/]", "")
     local out, i = {}, 1
     while i <= #data do
         local chunk = data:sub(i, i + 3)
@@ -88,7 +104,7 @@ local function b64urlDecode(data)
         if count >= 4 then out[#out + 1] = string.char(b3) end
         i = i + 4
     end
-    return table.concat(out)
+    return concatLarge(out)
 end
 
 -- All text of a Gmail message: the snippet plus every text part of the body.
@@ -97,7 +113,7 @@ local function messageText(msg)
     local function walk(node)
         if type(node) ~= "table" then return end
         local body = node.body
-        if type(body) == "table" and body.data then
+        if type(body) == "table" and type(body.data) == "string" and #body.data <= 400000 then
             parts[#parts + 1] = b64urlDecode(body.data)
         end
         if type(node.parts) == "table" then
@@ -468,8 +484,15 @@ function Parcels:_mailCheck(done)
         for _, id in ipairs(ids) do
             self:_gmailGet("messages/" .. id, { format = "full" }, function(msg, merr)
                 if msg then
-                    for _, number in ipairs(findNumbers(messageText(msg))) do
-                        self:track(number)
+                    -- One odd mail must not stall the whole check.
+                    local ok, perr = pcall(function()
+                        for _, number in ipairs(findNumbers(messageText(msg))) do
+                            self:track(number)
+                        end
+                    end)
+                    if not ok then
+                        self._lastMailError = "mail " .. id .. ": " .. tostring(perr)
+                        plugin:log("warn", "InPost: cannot read mail " .. id .. ": " .. tostring(perr))
                     end
                     self:_markSeen(id)
                 else
