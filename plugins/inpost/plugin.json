@@ -3,6 +3,6 @@
   "name": "InPost Paczki",
   "version": "0.1.1",
   "description": "Factory for InPost parcel tracking: events on a new parcel, a status change, ready for pickup and delivered",
-  "author": "vCLU",
+  "author": "VonXavier",
   "config": {}
 }
