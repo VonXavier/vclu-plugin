@@ -9,7 +9,7 @@
     {
       "id": "blebox",
       "name": "BleBox",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "description": "BleBox switchBox po lokalnym HTTP",
       "author": "VonXavier",
       "path": "plugins/blebox",
