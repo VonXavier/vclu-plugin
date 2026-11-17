@@ -1,15 +1,18 @@
 {
   "id": "blebox",
   "name": "BleBox",
-  "version": "0.2.0",
-  "description": "Fabryka obiektow dla BleBox switchBox/switchBoxD po lokalnym HTTP (create jak w tasmota-switch)",
+  "version": "0.3.0",
+  "description": "Fabryka obiektow dla BleBox switchBox/switchBoxD i gateBox po lokalnym HTTP (create, createGate)",
   "author": "VonXavier",
   "homepage": "https://github.com/VonXavier/vclu-plugin",
-  "files": ["init.lua"],
-
+  "files": [
+    "init.lua"
+  ],
   "config": {},
-
   "docs": [
-    {"title": "README", "file": "README.md"}
+    {
+      "title": "README",
+      "file": "README.md"
+    }
   ]
 }

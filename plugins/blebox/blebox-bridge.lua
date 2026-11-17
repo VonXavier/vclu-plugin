@@ -9,6 +9,9 @@
 --   deviceId - "Identyfikator urzadzenia" z aplikacji BleBox (plugin tez wypisuje go w logu po skanie)
 --   relay    - numer przekaznika: switchBox ma 0, switchBoxD ma 0 i 1
 --   DOUT     - id z Object Managera, np. "CLU221062464->DOU6243" (zapis ze strzalka tez dziala)
+--
+-- Brama (gateBox) to osobny rodzaj: createGate() + bridgeGate(). DOUT dziala jak przycisk:
+-- narastajace zbocze (0 -> 1) = jeden impuls. Powrot do 0 (Signal 0.8 s w OM) jest ignorowany.
 
 local bb = Plugin.getPlugin("@vonxavier/blebox")
 
@@ -60,19 +63,42 @@ else
         end)
     end
 
+    -- Brama: DOUT jako przycisk (np. DOUT z Signal 0.8 s w OM).
+    -- Tylko wlaczenie DOUT-a wysyla impuls; wylaczenie jest ignorowane. Brak stanu zwrotnego do DOUT.
+    -- Zabezpieczenia (uzbrajanie po starcie, odstep miedzy impulsami, brak ponowien) sa w pluginie.
+    local function bridgeGate(gate, doutId)
+        local dout = findDout(doutId)
+        if not dout then
+            print("blebox-bridge: nie znaleziono DOUT " .. doutId .. " (sprawdz id w Object Managerze)")
+            return
+        end
+        dout:onChange(function(v)
+            local val = v
+            if val == nil then val = dout:getValue() end
+            if isOn(val) then
+                gate:trigger()
+            end
+        end)
+    end
+
     -- ---------------------------------------------------------------- twoje urzadzenia
 
+    -- switchBoxD (id ee64c9c7496d): dwa przekazniki
     local lampa = bb:create({ deviceId = "ee64c9c7496d", relay = 0, name = "Lampa" })
     bridge(lampa, "CLU221062464->DOU6243")
 
-    -- switchBoxD ma drugi przekaznik:
-    -- local lampa2 = bb:create({ deviceId = "ee64c9c7496d", relay = 1, name = "Lampa 2" })
-    -- bridge(lampa2, "CLU221062464->DOU....")
+    local lampa2 = bb:create({ deviceId = "ee64c9c7496d", relay = 1, name = "Lampa 2" })
+    bridge(lampa2, "CLU221062464->DOU6046")
+
+    -- gateBox (id aa48fafe697f): brama sterowana impulsem
+    -- opcje: cooldown (s miedzy impulsami, domyslnie 5), armDelay (s ignorowania po starcie, domyslnie 10)
+    local brama = bb:createGate({ deviceId = "aa48fafe697f", name = "Brama" })
+    bridgeGate(brama, "CLU221062464->DOU0144")
 
     -- pojedynczy switchBox (jeden przekaznik, relay = 0):
     -- local gniazdo = bb:create({ deviceId = "IDENTYFIKATOR-Z-APLIKACJI", name = "Gniazdo" })
     -- bridge(gniazdo, "CLU221062464->DOU....")
 
-    -- Opcjonalnie: wystaw w HA / HomeKit
+    -- Opcjonalnie: wystaw w HA / HomeKit (brama: swiadomie, bo to otwieranie bramy z zewnatrz)
     -- expose(lampa, "switch", { name = "Lampa" })
 end

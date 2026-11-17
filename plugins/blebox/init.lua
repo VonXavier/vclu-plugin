@@ -1,8 +1,8 @@
 --[[
-    BleBox plugin dla vCLU (v0.2.0)
+    BleBox plugin dla vCLU (v0.3.0)
 
     Fabryka obiektow dla urzadzen BleBox z API "switchBox" (switchBox, switchBoxD)
-    po lokalnym HTTP. Tak jak @vclu/tasmota-switch: plugin nie ma wlasnej
+    i "gateBox" (sterownik bramy/drzwi) po lokalnym HTTP. Tak jak @vclu/tasmota-switch: plugin nie ma wlasnej
     konfiguracji, urzadzenia konfiguruje sie w kodzie przez create().
 
     Uzycie:
@@ -18,14 +18,18 @@
 
         expose(lampa, "switch", { name = "Lampa" })
 
+        -- gateBox: jeden impuls jak z pilota (bez stanu, gdy nie ma krancowek)
+        local brama = bb:createGate({ deviceId = "aa48fafe697f", name = "Brama" })
+        brama:trigger()
+
     deviceId = "Identyfikator urzadzenia" z aplikacji BleBox. Adres IP nie jest potrzebny:
     plugin znajduje urzadzenie po id i sam sledzi zmiane adresu (DHCP).
 ]]
 
 local plugin = Plugin:new("blebox", {
     name = "BleBox",
-    version = "0.2.0",
-    description = "Factory for BleBox switchBox objects (local HTTP)"
+    version = "0.3.0",
+    description = "Factory for BleBox switchBox / gateBox objects (local HTTP)"
 })
 
 -- pcall, jesli sandbox go nie ma, wywolujemy funkcje bez ochrony
@@ -44,6 +48,9 @@ local knownIps = {}      -- deviceId -> ostatni adres IP (zapisywane w KV)
 local discovered = {}    -- deviceId -> { id, ip, product } (znalezione skanem)
 local scanning = {}      -- podsiec -> true gdy trwa skan
 local lastScan = {}      -- podsiec -> os.time() ostatniego skanu
+
+-- typ API urzadzenia (pole "type" z /api/device/state) -> rodzaj obiektu
+local SUPPORTED = { switchBox = "switch", gateBox = "gate" }
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -115,11 +122,11 @@ local function getJson(ip, path, timeout, cb)
     end)
 end
 
--- Sprawdza, czy pod adresem jest BleBox z API switchBox. cb(d) albo cb(nil)
+-- Sprawdza, czy pod adresem jest obslugiwany BleBox (switchBox / gateBox). cb(d) albo cb(nil)
 local function probe(ip, cb)
     getJson(ip, "/api/device/state", PROBE_TIMEOUT, function(json)
         local d = json and json.device
-        if type(d) ~= "table" or d.type ~= "switchBox" or not d.id then
+        if type(d) ~= "table" or not SUPPORTED[d.type] or not d.id then
             cb(nil)
             return
         end
@@ -131,9 +138,10 @@ end
 -- DEVICE RECORD (jedno urzadzenie BleBox, wspolne dla jego przekaznikow)
 --------------------------------------------------------------------------------
 
-local function newRecord(key, deviceId, ip, subnet)
+local function newRecord(key, deviceId, ip, subnet, kind)
     return {
         key = key,
+        kind = kind or "switch",
         deviceId = deviceId,
         ip = ip,
         subnet = subnet,
@@ -148,6 +156,10 @@ local function newRecord(key, deviceId, ip, subnet)
         relays = {},     -- numer przekaznika -> 0/1
         switches = {},   -- numer przekaznika -> lista obiektow BleBoxSwitch
         pending = {},    -- numer przekaznika -> true, gdy trwa komenda
+        gates = {},      -- lista obiektow BleBoxGate (kind = "gate")
+        position = nil,  -- gateBox: currentPos (0 zamknieta, 100 otwarta, 50 posrednia/nieznana)
+        lastPulse = 0,   -- gateBox: czas ostatniego impulsu (os.time)
+        gatePending = false,
         polling = true,
         pollInterval = 2,
         poller = nil
@@ -184,6 +196,40 @@ local function applyRelays(rec, list, force)
     rec.lastUpdate = os.time()
 end
 
+-- gateBox: pozycja bramy. Bez krancowek urzadzenie zawsze zwraca 50.
+local function applyGate(rec, gate)
+    local pos = tonumber(gate.currentPos)
+    rec.position = pos
+    for i, g in ipairs(rec.gates) do
+        g:_apply(pos)
+    end
+    rec.lastUpdate = os.time()
+end
+
+-- Odczyt stanu urzadzenia (zalezny od rodzaju). cb(ok, err).
+-- early() jest wolane od razu po odpowiedzi HTTP, przed przetwarzaniem (poller: done()).
+local function readState(rec, cb, early)
+    local isGate = rec.kind == "gate"
+    local path = isGate and "/api/gate/state" or "/api/relay/state"
+    getJson(rec.ip, path, HTTP_TIMEOUT, function(json, err)
+        if early then early() end
+        local valid = json and ((isGate and type(json.gate) == "table")
+            or (not isGate and type(json.relays) == "table"))
+        if not valid then
+            cb(false, err or (isGate and "brak stanu bramy" or "brak stanu przekaznikow"))
+            return
+        end
+        rec.fails = 0
+        setOnline(rec, true)
+        if isGate then
+            applyGate(rec, json.gate)
+        else
+            applyRelays(rec, json.relays, false)
+        end
+        cb(true)
+    end)
+end
+
 local function markFail(rec, err)
     rec.lastError = err
     rec.fails = rec.fails + 1
@@ -206,13 +252,8 @@ local function adopt(rec, ip, d)
     rec.product = d.product
     rec.apiLevel = d.apiLevel
     -- stan od razu, bez czekania na kolejny tik
-    getJson(ip, "/api/relay/state", HTTP_TIMEOUT, function(json, err)
-        if json and type(json.relays) == "table" then
-            setOnline(rec, true)
-            applyRelays(rec, json.relays, false)
-        else
-            markFail(rec, err or "brak stanu przekaznikow")
-        end
+    readState(rec, function(ok, err)
+        if not ok then markFail(rec, err) end
     end)
 end
 
@@ -220,14 +261,22 @@ local function onFound(d, ip)
     rememberIp(d.id, ip)
     if not discovered[d.id] then
         discovered[d.id] = { id = d.id, ip = ip, product = d.product }
+        local hint = (d.type == "gateBox")
+            and ("createGate({ deviceId = \"" .. d.id .. "\" })")
+            or ("create({ deviceId = \"" .. d.id .. "\", relay = 0 })")
         plugin:log("info", "Znaleziono BleBox " .. d.id .. " (" .. tostring(d.product) .. ") @ " .. ip
-            .. ", uzyj: create({ deviceId = \"" .. d.id .. "\", relay = 0 })")
+            .. ", uzyj: " .. hint)
     else
         discovered[d.id].ip = ip
     end
     for key, rec in pairs(records) do
         if rec.deviceId == d.id and (not rec.online or rec.ip ~= ip) then
-            adopt(rec, ip, d)
+            if SUPPORTED[d.type] == rec.kind then
+                adopt(rec, ip, d)
+            else
+                plugin:log("error", "BleBox " .. d.id .. ": to urzadzenie typu " .. tostring(d.type)
+                    .. ", a obiekt jest innego rodzaju")
+            end
         end
     end
 end
@@ -288,22 +337,15 @@ local function tick(rec, done)
     end
 
     local function read()
-        getJson(rec.ip, "/api/relay/state", HTTP_TIMEOUT, function(json, err)
-            done()
-            if json and type(json.relays) == "table" then
-                rec.fails = 0
-                setOnline(rec, true)
-                applyRelays(rec, json.relays, false)
-            else
-                markFail(rec, err or "brak stanu przekaznikow")
-            end
-        end)
+        readState(rec, function(ok, err)
+            if not ok then markFail(rec, err) end
+        end, done)
     end
 
     if os.time() - rec.lastVerify >= VERIFY_EVERY then
         -- czy pod tym adresem nadal jest to samo urzadzenie (DHCP mogl przydzielic adres innemu)
         probe(rec.ip, function(d)
-            if d and (not rec.deviceId or d.id == rec.deviceId) then
+            if d and (not rec.deviceId or d.id == rec.deviceId) and SUPPORTED[d.type] == rec.kind then
                 rec.deviceId = rec.deviceId or d.id
                 rec.product = d.product
                 rec.apiLevel = d.apiLevel
@@ -383,6 +425,32 @@ local function sendRelay(rec, relay, want, cb)
     end)
 end
 
+-- gateBox: komenda GET /s/<p|s|o|c>. "p" = impuls na wyjsciu bramy (jak pilot).
+-- Bez ponowien: przy bledzie nie wiadomo, czy impuls poszedl, a drugi odwrocilby brame.
+local function sendGateCommand(rec, command, cb)
+    plugin:httpRequest({
+        url = "http://" .. rec.ip .. "/s/" .. command,
+        method = "GET",
+        timeout = HTTP_TIMEOUT,
+        parseJson = "success"
+    }, function(resp)
+        rec.gatePending = false
+        if resp.err or not resp.ok then
+            local err = resp.err or ("HTTP " .. tostring(resp.status))
+            plugin:log("warn", "BleBox gate " .. label(rec) .. ": komenda " .. command
+                .. " nieudana (" .. tostring(err) .. "), bez ponowienia - sprawdz brame")
+            call(cb, false, err)
+            return
+        end
+        rec.fails = 0
+        setOnline(rec, true)
+        if type(resp.json) == "table" and type(resp.json.gate) == "table" then
+            applyGate(rec, resp.json.gate)
+        end
+        call(cb, true)
+    end)
+end
+
 --------------------------------------------------------------------------------
 -- SWITCH OBJECT (jeden przekaznik)
 --------------------------------------------------------------------------------
@@ -440,11 +508,7 @@ end
 function BleBoxSwitch:refresh()
     local rec = self._rec
     if not rec.ip then return end
-    getJson(rec.ip, "/api/relay/state", HTTP_TIMEOUT, function(json)
-        if json and type(json.relays) == "table" then
-            applyRelays(rec, json.relays, false)
-        end
-    end)
+    readState(rec, function(ok) end)
 end
 
 -- Konfiguracja (fluent)
@@ -556,6 +620,181 @@ function BleBoxSwitch:onChange(callback)
 end
 
 --------------------------------------------------------------------------------
+-- GATE OBJECT (gateBox: brama / drzwi sterowane impulsem)
+--------------------------------------------------------------------------------
+
+-- Obiekt bez stanu on/off: trigger() wysyla jeden impuls (komenda "p", jak pilot).
+-- Zabezpieczenia: uzbrajanie po starcie (armDelay), odstep miedzy impulsami (cooldown),
+-- brak ponowien, odmowa gdy urzadzenie offline lub poprzednia komenda trwa.
+local BleBoxGate = {}
+
+function BleBoxGate:new(rec, options)
+    local ident = rec.deviceId and rec.deviceId or sanitize(rec.ip or rec.key)
+    local obj = {
+        _type = "gate",
+        _rec = rec,
+        _id = options.id or ("blebox_gate_" .. ident),
+        _name = options.name or ("BleBox gate " .. ident),
+        _position = nil,
+        _known = false,
+        _cooldown = tonumber(options.cooldown) or 5,
+        _armedAt = os.time() + (tonumber(options.armDelay) or 10),
+        _eventHandlers = {}
+    }
+    for name, fn in pairs(BleBoxGate) do obj[name] = fn end
+    table.insert(rec.gates, obj)
+    return obj
+end
+
+-- wywolywane przez plugin przy odczycie pozycji
+function BleBoxGate:_apply(pos)
+    local old = self._position
+    local first = not self._known
+    self._known = true
+    self._position = pos
+    if first then
+        self:emit("OnChange", pos, nil)
+    elseif pos ~= old then
+        self:emit("OnChange", pos, old)
+    end
+end
+
+-- Jeden impuls (primary). Zwraca true, gdy komenda poszla; false, gdy odmowa (cb(false, powod)).
+function BleBoxGate:trigger(cb)
+    local rec = self._rec
+    local now = os.time()
+    local why = nil
+    if now < self._armedAt then
+        why = "uzbrajanie po starcie, jeszcze " .. (self._armedAt - now) .. " s"
+    elseif rec.gatePending then
+        why = "poprzednia komenda jeszcze trwa"
+    elseif now - rec.lastPulse < self._cooldown then
+        why = "odstep miedzy impulsami " .. self._cooldown .. " s"
+    elseif not rec.ip or not rec.online then
+        why = "urzadzenie offline"
+    end
+    if why then
+        plugin:log("warn", "BleBox gate " .. label(rec) .. ": impuls pominiety (" .. why .. ")")
+        call(cb, false, why)
+        return false
+    end
+    rec.lastPulse = now
+    rec.gatePending = true
+    plugin:log("info", "BleBox gate " .. label(rec) .. ": impuls")
+    sendGateCommand(rec, "p", cb)
+    return true
+end
+
+function BleBoxGate:refresh()
+    local rec = self._rec
+    if not rec.ip then return end
+    readState(rec, function(ok) end)
+end
+
+-- Konfiguracja (fluent)
+
+function BleBoxGate:setId(id)
+    self._id = id
+    return self
+end
+
+function BleBoxGate:setName(name)
+    self._name = name
+    return self
+end
+
+function BleBoxGate:setIp(ip)
+    self._rec.ip = ip
+    self._rec.lastVerify = 0
+    return self
+end
+
+function BleBoxGate:setPolling(enabled, intervalSec)
+    local rec = self._rec
+    rec.polling = enabled
+    if intervalSec then rec.pollInterval = intervalSec end
+    stopPolling(rec)
+    if enabled then startPolling(rec) end
+    return self
+end
+
+-- Stan (bez krancowek pozycja to zawsze 50 = nieznana)
+
+function BleBoxGate:getId() return self._id end
+function BleBoxGate:getDeviceId() return self._rec.deviceId end
+function BleBoxGate:getPosition() return self._position end
+function BleBoxGate:getValue() return self._position end
+function BleBoxGate:isOnline() return self._rec.online end
+
+function BleBoxGate:getState()
+    local rec = self._rec
+    return {
+        id = self._id,
+        name = self._name,
+        deviceId = rec.deviceId,
+        ip = rec.ip,
+        product = rec.product,
+        position = self._position,
+        online = rec.online,
+        lastPulse = rec.lastPulse,
+        lastUpdate = rec.lastUpdate,
+        lastError = rec.lastError
+    }
+end
+
+-- Interfejs wymagany przez expose(). Brama nie ma stanu on/off:
+-- "wlacz" = impuls, "wylacz" nic nie robi. Wystawiaj z expose() swiadomie.
+
+function BleBoxGate:get(feature)
+    return 0
+end
+
+function BleBoxGate:set(feature, value)
+    if toState(value) == 1 then
+        self:trigger()
+    end
+end
+
+function BleBoxGate:switchOn()
+    self:trigger()
+end
+
+function BleBoxGate:switchOff()
+end
+
+-- Zdarzenia
+
+function BleBoxGate:on_event(event, callback)
+    if not self._eventHandlers[event] then
+        self._eventHandlers[event] = {}
+    end
+    local handlers = self._eventHandlers[event]
+    table.insert(handlers, callback)
+    return function()
+        for i, cb in ipairs(handlers) do
+            if cb == callback then
+                table.remove(handlers, i)
+                return
+            end
+        end
+    end
+end
+
+function BleBoxGate:emit(event, ...)
+    local handlers = self._eventHandlers[event]
+    if handlers then
+        for i, cb in ipairs(handlers) do
+            _pcall(cb, ...)
+        end
+    end
+end
+
+-- callback(newPos, oldPos): zmiana pozycji (wymaga krancowek); przy pierwszym odczycie oldPos = nil
+function BleBoxGate:onChange(callback)
+    return self:on_event("OnChange", callback)
+end
+
+--------------------------------------------------------------------------------
 -- PLUGIN FACTORY
 --------------------------------------------------------------------------------
 
@@ -598,8 +837,11 @@ function plugin:create(options)
 
     local key = deviceId or ("ip:" .. ip)
     local rec = records[key]
+    if rec and rec.kind ~= "switch" then
+        error("blebox: " .. key .. " nie jest przelacznikiem (dla gateBox uzyj createGate)")
+    end
     if not rec then
-        rec = newRecord(key, deviceId, ip or (deviceId and knownIps[deviceId]), options.subnet)
+        rec = newRecord(key, deviceId, ip or (deviceId and knownIps[deviceId]), options.subnet, "switch")
         rec.polling = options.polling ~= false
         rec.pollInterval = options.pollInterval or 2
         records[key] = rec
@@ -609,6 +851,45 @@ function plugin:create(options)
     local sw = BleBoxSwitch:new(rec, options)
     plugin:log("info", "Created: " .. sw._name .. " (" .. label(rec) .. " #" .. sw._relay .. ")")
     return sw
+end
+
+--- Tworzy obiekt bramy (gateBox): trigger() wysyla jeden impuls jak z pilota
+-- @param options table { deviceId, name, id, ip, subnet, polling, pollInterval, cooldown, armDelay }
+--   deviceId     - Identyfikator urzadzenia z aplikacji BleBox (zalecane)
+--   cooldown     - minimalny odstep miedzy impulsami w sekundach (domyslnie 5)
+--   armDelay     - ile sekund po utworzeniu ignorowac komendy (domyslnie 10), ochrona przed
+--                  falszywym impulsem przy starcie vclu
+--   pollInterval - odpytywanie pozycji (domyslnie 5 s)
+function plugin:createGate(options)
+    if type(options) == "string" then
+        options = { deviceId = options }
+    end
+    options = options or {}
+
+    local deviceId = options.deviceId
+    if deviceId then deviceId = string.lower(tostring(deviceId)) end
+    local ip = options.ip
+
+    if not deviceId and not ip then
+        error("blebox: createGate() wymaga deviceId (lub ip)")
+    end
+
+    local key = deviceId or ("ip:" .. ip)
+    local rec = records[key]
+    if rec and rec.kind ~= "gate" then
+        error("blebox: " .. key .. " nie jest bramka (dla switchBox uzyj create)")
+    end
+    if not rec then
+        rec = newRecord(key, deviceId, ip or (deviceId and knownIps[deviceId]), options.subnet, "gate")
+        rec.polling = options.polling ~= false
+        rec.pollInterval = tonumber(options.pollInterval) or 5
+        records[key] = rec
+        startPolling(rec)
+    end
+
+    local gate = BleBoxGate:new(rec, options)
+    plugin:log("info", "Created gate: " .. gate._name .. " (" .. label(rec) .. ")")
+    return gate
 end
 
 --- Ustawia domyslna podsiec skanowania (3 pierwsze oktety), np. "192.168.0"
@@ -637,8 +918,10 @@ function plugin:getDevices()
             deviceId = rec.deviceId,
             ip = rec.ip,
             online = rec.online,
+            kind = rec.kind,
             product = rec.product,
             relays = rec.count,
+            position = rec.position,
             lastUpdate = rec.lastUpdate,
             lastError = rec.lastError
         }

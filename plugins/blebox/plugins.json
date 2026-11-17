@@ -9,13 +9,14 @@
     {
       "id": "blebox",
       "name": "BleBox",
-      "version": "0.2.0",
-      "description": "BleBox switchBox/switchBoxD po lokalnym HTTP (fabryka create)",
+      "version": "0.3.0",
+      "description": "BleBox switchBox/switchBoxD i gateBox po lokalnym HTTP (fabryka create, createGate)",
       "author": "VonXavier",
       "path": "plugins/blebox",
       "tags": [
         "blebox",
-        "relay"
+        "relay",
+        "gate"
       ]
     }
   ]
