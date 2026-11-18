@@ -83,21 +83,21 @@ else
 
     -- ---------------------------------------------------------------- twoje urzadzenia
 
-    -- switchBoxD (id ee64c9c7496d): dwa przekazniki
-    local lampa = bb:create({ deviceId = "ee64c9c7496d", relay = 0, name = "Lampa" })
-    bridge(lampa, "CLU221062464->DOU6243")
+    -- switchBoxD (id ee6496d): dwa przekazniki
+    local lampa = bb:create({ deviceId = "ee6496d", relay = 0, name = "Lampa" })
+    bridge(lampa, "CLU22164->DOU43")
 
-    local lampa2 = bb:create({ deviceId = "ee64c9c7496d", relay = 1, name = "Lampa 2" })
-    bridge(lampa2, "CLU221062464->DOU6046")
+    local lampa2 = bb:create({ deviceId = "ee6496d", relay = 1, name = "Lampa 2" })
+    bridge(lampa2, "CLU22104->DOU66")
 
-    -- gateBox (id aa48fafe697f): brama sterowana impulsem
+    -- gateBox (id aa48f): brama sterowana impulsem
     -- opcje: cooldown (s miedzy impulsami, domyslnie 5), armDelay (s ignorowania po starcie, domyslnie 10)
-    local brama = bb:createGate({ deviceId = "aa48fafe697f", name = "Brama" })
-    bridgeGate(brama, "CLU221062464->DOU0144")
+    local brama = bb:createGate({ deviceId = "aa497f", name = "Brama" })
+    bridgeGate(brama, "CLU22164->DOU01")
 
-    -- pojedynczy switchBox (jeden przekaznik, relay = 0):
+    -- pojedynczy switchBox (jeden przekaznik, relay = 0): -- konfiguracja identyczna jak dla SwichtBoxD
     -- local gniazdo = bb:create({ deviceId = "IDENTYFIKATOR-Z-APLIKACJI", name = "Gniazdo" })
-    -- bridge(gniazdo, "CLU221062464->DOU....")
+    -- bridge(gniazdo, "CLU22164->DOU....")
 
     -- Opcjonalnie: wystaw w HA / HomeKit (brama: swiadomie, bo to otwieranie bramy z zewnatrz)
     -- expose(lampa, "switch", { name = "Lampa" })
