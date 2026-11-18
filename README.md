@@ -3,6 +3,6 @@ Pluginy vCLU
 Pluginy do vCLU, wirtualnego CLU Grentona. Każdy łączy vCLU z jakimś urządzeniem albo usługą.
 
 
-Integracja z BleBox ma jedną wadę w trakcie naprawy
+Integracja z BleBox - wydanie dla SwitchBox, SwitchBoxD oraz GateBox sprawdzone i działa.
 
-Wtyczka InPost w trakcie pierwszego testu
+Wtyczka InPost - pierwsze wydanie działa.
