@@ -16,6 +16,15 @@
       "tags": ["blebox", "relay"]
     },
     {
+      "id": "shelly",
+      "name": "Shelly",
+      "version": "0.1",
+      "description": "Shellyx po lokalnym HTTP, mqtt jeszcze nie",
+      "author": "VonXavier",
+      "path": "plugins/shelly",
+      "tags": ["shelly", "relay"]
+    },
+    {
       "id": "inpost",
       "name": "InPost Paczki",
       "version": "0.1.1",
