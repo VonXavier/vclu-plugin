@@ -1,8 +1,8 @@
 {
   "id": "shelly",
   "name": "Shelly",
-  "version": "0.1.0",
-  "description": "Fabryka obiektow dla Shelly Gen2/Gen3 (przekaznik + pomiar mocy) po lokalnym HTTP RPC (create)",
+  "version": "0.2.0",
+  "description": "Fabryka obiektow dla Shelly Gen2/Gen3 (przekaznik + pomiar mocy) po lokalnym HTTP RPC lub MQTT (create)",
   "author": "VonXavier",
   "homepage": "https://github.com/VonXavier/vclu-plugin",
   "files": [

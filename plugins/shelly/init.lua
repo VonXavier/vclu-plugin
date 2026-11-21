@@ -1,5 +1,5 @@
 --[[
-    Shelly plugin dla vCLU (v0.1.0)
+    Shelly plugin dla vCLU (v0.2.0)
 
     Fabryka obiektow dla urzadzen Shelly Gen2 / Gen3 / Gen4 (API RPC) po lokalnym HTTP,
     z przekaznikiem (komponent "switch") i pomiarem mocy. Tak jak @vonxavier/blebox: plugin nie ma
@@ -25,14 +25,20 @@
     (shellyplugmg3-907069747f40). Adres IP nie jest potrzebny: plugin znajduje urzadzenie po id
     i sam sledzi zmiane adresu (DHCP).
 
-    transport: v0.1 obsluguje tylko "http" (domyslnie). MQTT jest zaplanowany jako drugi transport.
-    Wymagania v0.1: Shelly Gen2 lub nowszy, bez hasla (auth_en = false).
+    transport:
+      "http" (domyslnie) - plugin sam odpytuje Shelly po HTTP (wymaga IP w tej samej sieci).
+      "mqtt" - Shelly laczy sie z brokerem MQTT, a plugin rozmawia z nim przez ten sam broker
+               (natychmiastowe zmiany stanu, bez odpytywania). Szczegoly w README.
+        local gniazdo = sh:create({ deviceId = "907069747f40", transport = "mqtt" })
+        -- jesli w Shelly zmieniles prefiks tematu MQTT: topic = "moj/prefiks"
+
+    Wymagania: Shelly Gen2 lub nowszy. HTTP: bez hasla (auth_en = false).
 ]]
 
 local plugin = Plugin:new("shelly", {
     name = "Shelly",
-    version = "0.1.0",
-    description = "Factory for Shelly Gen2+ switch objects (local HTTP RPC)"
+    version = "0.2.0",
+    description = "Factory for Shelly Gen2+ switch objects (local HTTP RPC or MQTT)"
 })
 
 -- pcall, jesli sandbox go nie ma, wywolujemy funkcje bez ochrony
@@ -148,7 +154,7 @@ end
 -- DEVICE RECORD (jedno urzadzenie Shelly, wspolne dla jego kanalow)
 --------------------------------------------------------------------------------
 
-local function newRecord(key, deviceId, ip, subnet)
+local function newRecord(key, deviceId, ip, subnet, transport, prefix)
     return {
         key = key,
         deviceId = deviceId,
@@ -170,7 +176,15 @@ local function newRecord(key, deviceId, ip, subnet)
         pending = {},    -- kanal -> true, gdy trwa komenda
         polling = true,
         pollInterval = 2,
-        poller = nil
+        poller = nil,
+        -- MQTT
+        transport = transport or "http",
+        prefix = prefix,          -- prefiks tematu MQTT Shelly (domyslnie jego id)
+        src = nil,                -- nasz identyfikator w zadaniach RPC (temat odpowiedzi: <src>/rpc)
+        raw = {},                 -- kanal -> polaczony status z powiadomien
+        rpcId = 0,
+        rpcPending = {},
+        mqttStarted = false
     }
 end
 
@@ -191,7 +205,7 @@ end
 
 -- Przetwarza odpowiedz Shelly.GetStatus: kluczami sa komponenty "switch:0", "switch:1", ...
 -- force = true: odpowiedz na wlasna komende; false: polling (pomija kanaly z trwajaca komenda)
-local function applyStatus(rec, status, force)
+local function applyStatus(rec, status, force, partial)
     local n = 0
     for key, comp in pairs(status) do
         local idx = string.match(key, "^switch:(%d+)$")
@@ -218,7 +232,9 @@ local function applyStatus(rec, status, force)
             end
         end
     end
-    if n ~= rec.count then
+    if partial then
+        if n > rec.count then rec.count = n end
+    elseif n ~= rec.count then
         rec.count = n
         if n == 0 then
             plugin:log("warn", "Shelly " .. label(rec) .. ": brak komponentow switch w statusie")
@@ -409,10 +425,190 @@ local function stopPolling(rec)
 end
 
 --------------------------------------------------------------------------------
+-- MQTT TRANSPORT (Shelly Gen2+ <-> broker <-> vCLU)
+--------------------------------------------------------------------------------
+
+local RPC_TIMEOUT = 4000
+local onlineWatch = false
+
+local function decode(payload)
+    if type(payload) ~= "string" or string.sub(payload, 1, 1) ~= "{" then return nil end
+    local obj = JSON:decode(payload)
+    if type(obj) ~= "table" then return nil end
+    return obj
+end
+
+-- powiadomienia niosa tylko zmienione pola, wiec skladamy je w pelny stan kanalu
+local function mergeComp(dst, src)
+    for k, v in pairs(src) do
+        if type(v) == "table" then
+            if type(dst[k]) ~= "table" then dst[k] = {} end
+            for kk, vv in pairs(v) do dst[k][kk] = vv end
+        else
+            dst[k] = v
+        end
+    end
+end
+
+-- params: tabela z kluczami "switch:N" (pelny status albo same zmiany)
+local function applyMqttStatus(rec, params)
+    local status = {}
+    local any = false
+    for key, comp in pairs(params) do
+        local idx = string.match(key, "^switch:(%d+)$")
+        if idx and type(comp) == "table" then
+            idx = tonumber(idx)
+            if not rec.raw[idx] then rec.raw[idx] = {} end
+            mergeComp(rec.raw[idx], comp)
+            -- bez znanego stanu wyjscia nie ma czego pokazac
+            if rec.raw[idx].output ~= nil then
+                status[key] = rec.raw[idx]
+                any = true
+            end
+        end
+    end
+    if any then
+        rec.fails = 0
+        setOnline(rec, true)
+        applyStatus(rec, status, false, true)
+    end
+end
+
+-- Zadanie RPC do Shelly (temat <prefiks>/rpc), odpowiedz wraca na <src>/rpc. cb(ok, result|err)
+local function mqttRequest(rec, method, params, cb)
+    if not rec.prefix then
+        call(cb, false, "temat MQTT nieznany (Shelly jeszcze nie zglosilo sie na brokerze)")
+        return
+    end
+    rec.rpcId = rec.rpcId + 1
+    local id = rec.rpcId
+    local entry = { cb = cb }
+    rec.rpcPending[id] = entry
+    entry.timer = plugin:setTimeout(RPC_TIMEOUT, function()
+        if rec.rpcPending[id] then
+            rec.rpcPending[id] = nil
+            call(cb, false, "timeout")
+        end
+    end)
+    plugin:mqttPublish(rec.prefix .. "/rpc",
+        JSON:encode({ id = id, src = rec.src, method = method, params = params }),
+        { qos = 1 })
+end
+
+local function mqttRefresh(rec, cb)
+    mqttRequest(rec, "Shelly.GetStatus", nil, function(ok, result)
+        if ok and type(result) == "table" then
+            applyMqttStatus(rec, result)
+            call(cb, true)
+        else
+            call(cb, false, result)
+        end
+    end)
+end
+
+local function onMqttResponse(rec, payload)
+    local obj = decode(payload)
+    if not obj or obj.id == nil then return end
+    local entry = rec.rpcPending[obj.id]
+    if not entry then return end
+    rec.rpcPending[obj.id] = nil
+    if entry.timer then plugin:clearTimer(entry.timer) end
+    if obj.error then
+        local msg = type(obj.error) == "table" and obj.error.message or tostring(obj.error)
+        call(entry.cb, false, msg)
+    else
+        call(entry.cb, true, obj.result)
+    end
+end
+
+local function onMqttNotify(rec, payload)
+    local obj = decode(payload)
+    if not obj or type(obj.params) ~= "table" then return end
+    if obj.method == "NotifyStatus" or obj.method == "NotifyFullStatus" then
+        applyMqttStatus(rec, obj.params)
+    end
+end
+
+-- Zwraca true, gdy wlasnie wystartowal (wtedy sam pobral stan)
+local function startMqtt(rec)
+    if rec.mqttStarted or not rec.prefix then return false end
+    rec.mqttStarted = true
+    plugin:mqttSubscribe(rec.prefix .. "/events/rpc", function(topic, payload)
+        onMqttNotify(rec, payload)
+    end)
+    plugin:mqttSubscribe(rec.src .. "/rpc", function(topic, payload)
+        onMqttResponse(rec, payload)
+    end)
+    mqttRefresh(rec)
+    return true
+end
+
+-- <prefiks>/online: "true" / "false" (Shelly ustawia je samo, z "testamentem" LWT).
+-- Po nim rozpoznajemy urzadzenie bez podawania tematu: domyslny prefiks to <model>-<mac>.
+local onlineSeen = {}   -- prefiks -> true/false (ostatnio widziany stan), dla urzadzen tworzonych pozniej
+
+local function bindOnline(rec, prefix, flag)
+    local mac = string.match(string.lower(prefix), "%-(%x+)$")
+    local matches = (rec.prefix == prefix)
+        or (rec.prefix == nil and mac ~= nil and rec.deviceId == mac)
+    if not matches then return end
+    if not rec.prefix then
+        rec.prefix = prefix
+        plugin:log("info", "Shelly " .. label(rec) .. ": temat MQTT " .. prefix)
+    end
+    local fresh = startMqtt(rec)
+    setOnline(rec, flag)
+    if flag and not fresh then mqttRefresh(rec) end
+end
+
+local function onOnlineTopic(topic, payload)
+    local prefix = string.match(topic, "^(.*)/online$")
+    if not prefix then return end
+    local flag = (payload == "true")
+    onlineSeen[prefix] = flag
+    for key, rec in pairs(records) do
+        if rec.transport == "mqtt" then bindOnline(rec, prefix, flag) end
+    end
+end
+
+-- urzadzenie utworzone po tym, jak broker juz przyslal jego "online" (np. kolejne create())
+local function adoptSeen(rec)
+    for prefix, flag in pairs(onlineSeen) do
+        bindOnline(rec, prefix, flag)
+    end
+end
+
+local function ensureOnlineWatch()
+    if onlineWatch then return end
+    onlineWatch = true
+    plugin:mqttSubscribe("+/online", onOnlineTopic)
+end
+
+local function mqttSendSwitch(rec, channel, want, cb)
+    rec.pending[channel] = true
+    mqttRequest(rec, "Switch.Set", { id = channel, on = (want == 1) }, function(ok, err)
+        rec.pending[channel] = nil
+        if not ok then
+            plugin:log("warn", "Shelly " .. label(rec) .. " #" .. channel
+                .. ": komenda nieudana (" .. tostring(err) .. ")")
+            call(cb, false, err)
+            return
+        end
+        -- stan przyjdzie tez w powiadomieniu, ale dociagamy go od razu
+        mqttRefresh(rec)
+        call(cb, true)
+    end)
+end
+
+--------------------------------------------------------------------------------
 -- COMMANDS
 --------------------------------------------------------------------------------
 
 local function sendSwitch(rec, channel, want, cb)
+    if rec.transport == "mqtt" then
+        mqttSendSwitch(rec, channel, want, cb)
+        return
+    end
     if not rec.ip then
         call(cb, false, "adres urzadzenia nieznany")
         return
@@ -469,6 +665,14 @@ function ShellySwitch:new(rec, options)
 
     if not rec.switches[channel] then rec.switches[channel] = {} end
     table.insert(rec.switches[channel], obj)
+
+    -- stan mogl juz przyjsc, zanim powstal ten obiekt (np. kolejne create() dla tego samego Shelly)
+    local known = rec.state[channel]
+    if known then
+        obj._value = known.output
+        obj._m = known
+        obj._known = true
+    end
     return obj
 end
 
@@ -514,6 +718,10 @@ end
 
 function ShellySwitch:refresh()
     local rec = self._rec
+    if rec.transport == "mqtt" then
+        mqttRefresh(rec)
+        return
+    end
     if not rec.ip then return end
     readState(rec, function(ok) end)
 end
@@ -539,6 +747,7 @@ end
 -- polling dotyczy calego urzadzenia (wszystkich jego kanalow)
 function ShellySwitch:setPolling(enabled, intervalSec)
     local rec = self._rec
+    if rec.transport == "mqtt" then return self end   -- MQTT nie odpytuje
     rec.polling = enabled
     if intervalSec then rec.pollInterval = intervalSec end
     stopPolling(rec)
@@ -639,14 +848,32 @@ function ShellySwitch:emit(event, ...)
     end
 end
 
--- callback(newVal, oldVal): zmiana stanu 0/1; przy pierwszym odczycie oldVal = nil
+-- callback(newVal, oldVal): zmiana stanu 0/1; przy pierwszym odczycie (lub zaraz po zapisaniu,
+-- jesli stan jest juz znany) oldVal = nil
 function ShellySwitch:onChange(callback)
-    return self:on_event("OnChange", callback)
+    local unsub = self:on_event("OnChange", callback)
+    if self._known then
+        -- stan jest juz znany: podajemy go raz nowemu subskrybentowi (old = nil)
+        local live = true
+        plugin:setTimeout(1, function()
+            if live then call(callback, self._value, nil) end
+        end)
+        return function() live = false; unsub() end
+    end
+    return unsub
 end
 
 -- callback(m): zmiana pomiarow, m = { output, power, voltage, current, freq, energy, temperature }
 function ShellySwitch:onMeasure(callback)
-    return self:on_event("OnMeasure", callback)
+    local unsub = self:on_event("OnMeasure", callback)
+    if self._known and self._m then
+        local live = true
+        plugin:setTimeout(1, function()
+            if live then call(callback, self._m) end
+        end)
+        return function() live = false; unsub() end
+    end
+    return unsub
 end
 
 --------------------------------------------------------------------------------
@@ -664,6 +891,8 @@ plugin:onCleanup(function()
     end
     records = {}
     scanning = {}
+    onlineWatch = false
+    onlineSeen = {}
     plugin:log("info", "Shelly cleanup")
 end)
 
@@ -684,29 +913,63 @@ function plugin:create(options)
     options = options or {}
 
     local transport = options.transport or "http"
-    if transport ~= "http" then
-        error("shelly: transport \"" .. tostring(transport) .. "\" nieobslugiwany w v0.1 (dostepny tylko http)")
+    if transport ~= "http" and transport ~= "mqtt" then
+        error("shelly: nieznany transport \"" .. tostring(transport) .. "\" (dozwolone: http, mqtt)")
     end
 
     local deviceId = normalizeId(options.deviceId)
     local ip = options.ip
+    local prefix = nil
 
-    if not deviceId and not ip then
+    if transport == "mqtt" then
+        prefix = options.topic
+        -- pelny id (model-mac) to zarazem domyslny prefiks tematu MQTT Shelly
+        if not prefix and options.deviceId
+            and string.match(tostring(options.deviceId), "^[%w_]+%-%x+$") then
+            prefix = string.lower(tostring(options.deviceId))
+        end
+        if not deviceId and not prefix then
+            error("shelly: create() z transportem mqtt wymaga deviceId (lub topic)")
+        end
+    elseif not deviceId and not ip then
         error("shelly: create() wymaga deviceId (lub ip)")
     end
 
-    local key = deviceId or ("ip:" .. ip)
+    local key = deviceId or (prefix and ("topic:" .. prefix)) or ("ip:" .. tostring(ip))
     local rec = records[key]
+
+    if rec and rec.transport ~= transport then
+        error("shelly: urzadzenie " .. key .. " jest juz utworzone z transportem " .. rec.transport
+            .. ", nie mozna uzyc obu naraz")
+    end
+
     if not rec then
-        rec = newRecord(key, deviceId, ip or (deviceId and knownIps[deviceId]), options.subnet)
-        rec.polling = options.polling ~= false
-        rec.pollInterval = tonumber(options.pollInterval) or 2
-        records[key] = rec
-        startPolling(rec)
+        if transport == "mqtt" then
+            rec = newRecord(key, deviceId, nil, options.subnet, "mqtt", prefix)
+            rec.polling = false
+            rec.src = "vclu/shelly/" .. sanitize(key)
+            records[key] = rec
+            ensureOnlineWatch()
+            if prefix then
+                -- prefiks z ukosnikiem nie pasuje do wzorca +/online, wiec subskrybujemy go wprost
+                if string.find(prefix, "/", 1, true) then
+                    plugin:mqttSubscribe(prefix .. "/online", onOnlineTopic)
+                end
+                startMqtt(rec)
+            end
+            adoptSeen(rec)
+        else
+            rec = newRecord(key, deviceId, ip or (deviceId and knownIps[deviceId]), options.subnet)
+            rec.polling = options.polling ~= false
+            rec.pollInterval = tonumber(options.pollInterval) or 2
+            records[key] = rec
+            startPolling(rec)
+        end
     end
 
     local sw = ShellySwitch:new(rec, options)
-    plugin:log("info", "Created: " .. sw._name .. " (" .. label(rec) .. " #" .. sw._channel .. ")")
+    plugin:log("info", "Created: " .. sw._name .. " (" .. label(rec) .. " #" .. sw._channel
+        .. ", " .. rec.transport .. ")")
     return sw
 end
 
@@ -735,6 +998,8 @@ function plugin:getDevices()
             key = key,
             deviceId = rec.deviceId,
             ip = rec.ip,
+            transport = rec.transport,
+            topic = rec.prefix,
             online = rec.online,
             product = rec.product,
             app = rec.app,
