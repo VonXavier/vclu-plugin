@@ -27,7 +27,7 @@
     {
       "id": "auto-dashboard",
       "name": "Automatyczny Dashboard",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "Sam buduje dashboard ze wszystkich obiektów w rejestrze i udostępnia go w aplikacji vclu na Androida. Zero konfiguracji",
       "author": "VonXavier",
       "path": "plugins/auto-dashboard",
