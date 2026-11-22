@@ -5,7 +5,7 @@
 
 local plugin = Plugin:new("auto-dashboard", {
   name = "Auto Dashboard",
-  version = "0.2.1",
+  version = "0.2.2",
   description = "Automatyczny dashboard dla aplikacji vclu"
 })
 
@@ -56,7 +56,13 @@ plugin:onInit(function(config)
   config = config or {}
   local reg = _ or _registry
   if not reg or not Dashboard then
-    plugin:log("error", "Brak dostępu do rejestru albo Dashboard w sandboxie pluginu")
+    plugin:log("error", "Sandbox pluginu: rejestr (_) = " .. tostring(reg ~= nil)
+      .. ", Dashboard = " .. tostring(Dashboard ~= nil))
+    -- diagnostyka: jakie globalne nazwy widzi plugin
+    local names = {}
+    for k in pairs(_G or {}) do names[#names + 1] = tostring(k) end
+    table.sort(names)
+    plugin:log("info", "Dostępne globalne: " .. table.concat(names, ", "))
     return
   end
   if registered then return end   -- jedna rejestracja na proces
