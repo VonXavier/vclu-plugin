@@ -1,46 +1,87 @@
 {
   "id": "auto-dashboard",
-  "name": "auto-dashboard Plugin",
-  "version": "0.0.1",
-  "author": "dawid",
+  "name": "Auto Dashboard",
+  "version": "0.2.0",
+  "description": "Sam buduje dashboard ze wszystkich obiektów w rejestrze i udostępnia go w aplikacji vclu na Androida. Zero konfiguracji.",
+  "author": "vonxavier",
   "license": "MIT",
-  "description": "Przykładowy plugin pokazujący jak pisać własne pluginy dla vCLU z expose API",
-
-  "docs": [
-    { "title": "Getting Started", "file": "README.md" }
+  "tags": [
+    "dashboard",
+    "android",
+    "auto"
   ],
-
-  "config": {
-    "greeting": {
+  "files": [
+    "init.lua"
+  ],
+  "configSchema": [
+    {
+      "key": "title",
       "type": "string",
-      "default": "Hello",
-      "description": "Tekst powitania"
+      "label": "Nazwa dashboardu",
+      "default": "Dom"
     },
-    "interval": {
-      "type": "number",
-      "default": 60,
-      "min": 10,
-      "max": 3600,
-      "description": "Interwał w sekundach"
-    },
-    "enabled": {
+    {
+      "key": "remote",
       "type": "boolean",
-      "default": true,
-      "description": "Czy plugin aktywny"
+      "label": "Pokaż w aplikacji (przez chmurę)",
+      "default": "true"
+    },
+    {
+      "key": "pin",
+      "type": "string",
+      "label": "PIN poza domem (puste = bez PIN-u)",
+      "description": "Zalecane. Z PIN-em aplikacja poprosi o kod przy wejściu poza domem.",
+      "default": ""
+    },
+    {
+      "key": "roles",
+      "type": "string",
+      "label": "Role z chmury (puste = wszyscy domownicy)",
+      "default": ""
+    },
+    {
+      "key": "hideSensitive",
+      "type": "boolean",
+      "label": "Ukrywaj wrażliwe obiekty poza domem",
+      "description": "Obiekty o nazwach z listy poniżej nie będą widoczne w aplikacji.",
+      "default": "true"
+    },
+    {
+      "key": "sensitiveWords",
+      "type": "string",
+      "label": "Słowa wrażliwych obiektów (po przecinku)",
+      "default": "BRAMA,GARAZ,ALARM,ZAMEK,DRZWI"
+    },
+    {
+      "key": "hide",
+      "type": "string",
+      "label": "Ukryj obiekty (fragmenty ścieżek, po przecinku)",
+      "description": "Znikają z dashboardu całkowicie, także w domu.",
+      "default": ""
+    },
+    {
+      "key": "readonly",
+      "type": "string",
+      "label": "Poza domem tylko odczyt (fragmenty ścieżek, po przecinku)",
+      "default": ""
+    },
+    {
+      "key": "showSensors",
+      "type": "boolean",
+      "label": "Pokazuj czujniki i odczyty",
+      "default": "true"
+    },
+    {
+      "key": "columns",
+      "type": "number",
+      "label": "Liczba kolumn",
+      "default": "3"
+    },
+    {
+      "key": "poll",
+      "type": "number",
+      "label": "Odświeżanie poza domem (sekundy, min. 2)",
+      "default": "5"
     }
-  },
-
-  "exports": {
-    "sensors": [
-      { "id": "value", "type": "number", "description": "Aktualna wartość" },
-      { "id": "ready", "type": "sensor", "description": "Status gotowości (0/1)" }
-    ],
-    "controls": [
-      { "id": "target", "type": "number", "description": "Wartość docelowa (odczyt/zapis)" }
-    ],
-    "events": [
-      { "name": "auto-dashboard:updated", "description": "Dane zaktualizowane" },
-      { "name": "auto-dashboard:error", "description": "Błąd" }
-    ]
-  }
+  ]
 }
