@@ -8,7 +8,7 @@ Co dostajesz:
 - pomiary: moc (W), energia (Wh), napięcie (V), prąd (A) i temperatura (°C),
 - opcjonalnie: pomiary jako **cechy użytkownika** na CLU, do skryptów Grentona i aplikacji myGrenton.
 
-Wersja 0.2.0. Połączenie z Shelly: **HTTP** (domyślnie) albo **MQTT** (krok 5).
+Wersja 0.3.0. Połączenie z Shelly: **HTTP** (domyślnie) albo **MQTT**, do wyboru w ustawieniach wtyczki (krok 5).
 
 ---
 
@@ -196,20 +196,23 @@ Wymaga **brokera MQTT**, do którego podłączone jest vCLU. Shelly musi łączy
 6. Kliknij **Zapisz**. Shelly poprosi o **ponowne uruchomienie** urządzenia (w ustawieniach urządzenia jest pozycja **Ponowne uruchomienie**). Wykonaj je.
 7. Po restarcie wróć do zakładki MQTT. Czerwony komunikat **Urządzenie jest odłączone** powinien zniknąć.
 
-### 5.3. Przełącz wtyczkę na MQTT
+### 5.3. Wybierz MQTT w ustawieniach wtyczki
 
-W pliku `modules/shelly.lua` dopisz jedną linię przy urządzeniu:
+1. W panelu vCLU otwórz stronę **Plugins** i znajdź kafelek **Shelly**.
+2. Kliknij ikonę zębatki (**Configure**).
+3. W polu **transport** wybierz (lub wpisz) `mqtt`. Domyślnie jest `http`.
+4. Kliknij **Save**. Wtyczka przeładuje się i od tej chwili wszystkie Twoje Shelly łączą się przez MQTT.
+
+Jeśli chcesz, możesz też wybrać transport **osobno dla jednego urządzenia** w `modules/shelly.lua`. Taki wpis ma pierwszeństwo przed ustawieniem wtyczki:
 
 ```lua
     {
         deviceId  = "907069747f40",
         name      = "Gniazdo Shelly",
-        transport = "mqtt",           -- tu włączasz MQTT
+        transport = "http",           -- to urządzenie zostaje na HTTP, mimo że wtyczka ma mqtt
         dout      = "CLU.DOU5048",
     },
 ```
-
-Zapisz plik i kliknij **Reload**.
 
 > Zmieniłeś w Shelly prefiks tematu MQTT? Dopisz go w polu `topic`, np. `topic = "moj/prefiks"`. Bez zmiany prefiksu nie wpisuj nic, wtyczka rozpozna urządzenie sama.
 
@@ -219,7 +222,7 @@ Zapisz plik i kliknij **Reload**.
 2. Wciśnij przycisk na gniazdku. DOUT w Object Managerze powinien zmienić stan od razu.
 3. Przełącz DOUT w Grentonie. Gniazdko powinno kliknąć.
 
-> Nie możesz używać HTTP i MQTT naraz dla tego samego Shelly. Chcesz wrócić do HTTP? Usuń linię `transport` i kliknij **Reload**.
+> Nie możesz używać HTTP i MQTT naraz dla tego samego Shelly. Chcesz wrócić do HTTP? W ustawieniach wtyczki wybierz `http` i kliknij **Save**.
 
 ---
 
@@ -229,7 +232,7 @@ Zapisz plik i kliknij **Reload**.
 |---|---|
 | W logach nie ma `online` | Sprawdź `deviceId` (te same znaki co w aplikacji Shelly), czy Shelly ma Wi-Fi i czy jest w tej samej podsieci co vCLU. Jeśli podsieć jest inna niż `192.168.1`, odkomentuj w `shelly.lua` linię `sh:setSubnet("192.168.0")` i wpisz swoją |
 | W logach: `ma wlaczone haslo` | Wyłącz hasło w Shelly (krok 1) |
-| `nieznany transport` | W polu `transport` wpisz `"http"` albo `"mqtt"` |
+| `nieznany transport` albo `Nieznany transport w konfiguracji` | W polu `transport` (ustawienia wtyczki lub `shelly.lua`) wpisz `http` albo `mqtt` |
 | MQTT: w logach nie ma `temat MQTT` | Shelly nie jest połączone z brokerem. Sprawdź w Shelly zakładkę MQTT (adres, port, login, brak komunikatu o odłączeniu) i czy to ten sam broker co w vCLU (**Integracje → MQTT**) |
 | MQTT: jest `online`, ale komenda kończy się `timeout` | Sprawdź w Shelly, czy RPC przez MQTT nie zostało wyłączone, i czy broker przepuszcza tematy z prefiksem Shelly |
 | MQTT: urządzenie wciąż `offline` po restarcie Shelly | Poczekaj kilkanaście sekund na ponowne połączenie z brokerem. Jeśli to nie pomaga, zrestartuj Shelly jeszcze raz |
@@ -260,7 +263,7 @@ local gniazdo = sh:create({ deviceId = "907069747f40", channel = 0, name = "Gnia
 | `ip` | - | podpowiedź adresu (tylko transport `http`) |
 | `subnet` | `192.168.1` | podsieć do skanowania (3 pierwsze oktety) |
 | `polling`, `pollInterval` | `true`, `2` s | odpytywanie stanu (tylko transport `http`) |
-| `transport` | `"http"` | `"http"` albo `"mqtt"` |
+| `transport` | z ustawień wtyczki | `"http"` albo `"mqtt"`, nadpisuje ustawienie wtyczki |
 | `topic` | id Shelly | prefiks tematu MQTT, tylko gdy go zmieniłeś w Shelly (transport `mqtt`) |
 
 ### Sterowanie i zdarzenia

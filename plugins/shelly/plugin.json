@@ -1,18 +1,42 @@
 {
   "id": "shelly",
   "name": "Shelly",
-  "version": "0.2.0",
-  "description": "Fabryka obiektow dla Shelly Gen2/Gen3 (przekaznik + pomiar mocy) po lokalnym HTTP RPC lub MQTT (create)",
+  "version": "0.3.0",
+  "description": "Fabryka obiektow dla Shelly Gen2/Gen3 (przekaznik + pomiar mocy) po lokalnym HTTP lub MQTT (create)",
   "author": "VonXavier",
   "homepage": "https://github.com/VonXavier/vclu-plugin",
   "files": [
     "init.lua"
   ],
-  "config": {},
+  "config": {
+    "transport": {
+      "type": "string",
+      "enum": [
+        "http",
+        "mqtt"
+      ],
+      "default": "http"
+    }
+  },
   "docs": [
     {
       "title": "README",
       "file": "README.md"
+    }
+  ],
+  "tags": [
+    "shelly",
+    "relay",
+    "mqtt",
+    "http"
+  ],
+  "configSchema": [
+    {
+      "key": "transport",
+      "type": "string",
+      "label": "Transport (http lub mqtt)",
+      "description": "Jak wtyczka rozmawia z Shelly: http (odpytywanie) albo mqtt (przez broker). Mozna nadpisac w create({transport=...}).",
+      "default": "http"
     }
   ]
 }

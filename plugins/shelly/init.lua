@@ -1,5 +1,5 @@
 --[[
-    Shelly plugin dla vCLU (v0.2.0)
+    Shelly plugin dla vCLU (v0.3.0)
 
     Fabryka obiektow dla urzadzen Shelly Gen2 / Gen3 / Gen4 (API RPC) po lokalnym HTTP,
     z przekaznikiem (komponent "switch") i pomiarem mocy. Tak jak @vonxavier/blebox: plugin nie ma
@@ -25,7 +25,8 @@
     (shellyplugmg3-907069747f40). Adres IP nie jest potrzebny: plugin znajduje urzadzenie po id
     i sam sledzi zmiane adresu (DHCP).
 
-    transport:
+    transport (domyslny wybierasz w vCLU: Plugins -> Shelly -> Configure -> transport;
+               opcja transport w create() zawsze ma pierwszenstwo nad ustawieniem pluginu):
       "http" (domyslnie) - plugin sam odpytuje Shelly po HTTP (wymaga IP w tej samej sieci).
       "mqtt" - Shelly laczy sie z brokerem MQTT, a plugin rozmawia z nim przez ten sam broker
                (natychmiastowe zmiany stanu, bez odpytywania). Szczegoly w README.
@@ -37,7 +38,7 @@
 
 local plugin = Plugin:new("shelly", {
     name = "Shelly",
-    version = "0.2.0",
+    version = "0.3.0",
     description = "Factory for Shelly Gen2+ switch objects (local HTTP RPC or MQTT)"
 })
 
@@ -52,6 +53,7 @@ local SCAN_CONCURRENCY = 10
 local SCAN_COOLDOWN = 30     -- s, minimalny odstep miedzy skanami tej samej podsieci
 
 local defaultSubnet = "192.168.1"
+local defaultTransport = "http"   -- ustawiany w konfiguracji pluginu (onInit)
 local records = {}       -- key -> rekord urzadzenia (wspolny dla wszystkich kanalow urzadzenia)
 local knownIps = {}      -- deviceId -> ostatni adres IP (zapisywane w KV)
 local discovered = {}    -- deviceId -> { id, ip, product } (znalezione skanem)
@@ -882,7 +884,20 @@ end
 
 plugin:onInit(function(config)
     knownIps = decodeIps(plugin:kvGet("ips", ""))
-    plugin:log("info", "Shelly factory ready")
+
+    -- domyslny transport z konfiguracji pluginu (lista rozwijana w vCLU)
+    defaultTransport = "http"
+    local wanted = type(config) == "table" and config.transport or nil
+    if wanted ~= nil and wanted ~= "" then
+        wanted = string.lower(tostring(wanted))
+        if wanted == "http" or wanted == "mqtt" then
+            defaultTransport = wanted
+        else
+            plugin:log("warn", "Nieznany transport w konfiguracji: '" .. wanted
+                .. "' (dozwolone: http, mqtt), uzywam http")
+        end
+    end
+    plugin:log("info", "Shelly factory ready (domyslny transport: " .. defaultTransport .. ")")
 end)
 
 plugin:onCleanup(function()
@@ -912,7 +927,7 @@ function plugin:create(options)
     end
     options = options or {}
 
-    local transport = options.transport or "http"
+    local transport = options.transport or defaultTransport
     if transport ~= "http" and transport ~= "mqtt" then
         error("shelly: nieznany transport \"" .. tostring(transport) .. "\" (dozwolone: http, mqtt)")
     end
