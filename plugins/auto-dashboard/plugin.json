@@ -1,8 +1,8 @@
 {
-  "id": "example",
-  "name": "Example Plugin",
-  "version": "2.1.1",
-  "author": "vCLU Team",
+  "id": "auto-dashboard",
+  "name": "auto-dashboard Plugin",
+  "version": "0.0.1",
+  "author": "dawid",
   "license": "MIT",
   "description": "Przykładowy plugin pokazujący jak pisać własne pluginy dla vCLU z expose API",
 
@@ -39,8 +39,8 @@
       { "id": "target", "type": "number", "description": "Wartość docelowa (odczyt/zapis)" }
     ],
     "events": [
-      { "name": "example:updated", "description": "Dane zaktualizowane" },
-      { "name": "example:error", "description": "Błąd" }
+      { "name": "auto-dashboard:updated", "description": "Dane zaktualizowane" },
+      { "name": "auto-dashboard:error", "description": "Błąd" }
     ]
   }
 }
