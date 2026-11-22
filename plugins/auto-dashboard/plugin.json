@@ -1,14 +1,14 @@
 {
   "id": "auto-dashboard",
-  "name": "Auto Dashboard",
-  "version": "0.2.0",
+  "name": "Automatyczny Dashboard",
+  "version": "0.2.1",
   "description": "Sam buduje dashboard ze wszystkich obiektów w rejestrze i udostępnia go w aplikacji vclu na Androida. Zero konfiguracji.",
   "author": "vonxavier",
   "license": "MIT",
   "tags": [
     "dashboard",
-    "android",
-    "auto"
+    "automatyczny",
+    "android"
   ],
   "files": [
     "init.lua"
@@ -83,5 +83,55 @@
       "label": "Odświeżanie poza domem (sekundy, min. 2)",
       "default": "5"
     }
-  ]
+  ],
+  "config": {
+    "title": {
+      "type": "string",
+      "default": "Dom"
+    },
+    "remote": {
+      "type": "boolean",
+      "default": true
+    },
+    "pin": {
+      "type": "string",
+      "default": ""
+    },
+    "roles": {
+      "type": "string",
+      "default": ""
+    },
+    "hideSensitive": {
+      "type": "boolean",
+      "default": true
+    },
+    "sensitiveWords": {
+      "type": "string",
+      "default": "BRAMA,GARAZ,ALARM,ZAMEK,DRZWI"
+    },
+    "hide": {
+      "type": "string",
+      "default": ""
+    },
+    "readonly": {
+      "type": "string",
+      "default": ""
+    },
+    "showSensors": {
+      "type": "boolean",
+      "default": true
+    },
+    "columns": {
+      "type": "number",
+      "default": 3,
+      "min": 1,
+      "max": 6
+    },
+    "poll": {
+      "type": "number",
+      "default": 5,
+      "min": 2,
+      "max": 60
+    }
+  }
 }

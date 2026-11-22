@@ -5,7 +5,7 @@
 
 local plugin = Plugin:new("auto-dashboard", {
   name = "Auto Dashboard",
-  version = "0.2.0",
+  version = "0.2.1",
   description = "Automatyczny dashboard dla aplikacji vclu"
 })
 
