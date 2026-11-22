@@ -18,8 +18,8 @@
     {
       "id": "shelly",
       "name": "Shelly",
-      "version": "0.3",
-      "description": "Shelly po lokalnym HTTP oraz matt",
+      "version": "0.3.1",
+      "description": "Shelly po lokalnym HTTP oraz mqtt",
       "author": "VonXavier",
       "path": "plugins/shelly",
       "tags": ["shelly", "relay"]
