@@ -7,4 +7,4 @@ Integracja z BleBox - wydanie dla SwitchBox, SwitchBoxD oraz GateBox sprawdzone 
 
 Wtyczka InPost - pierwsze wydanie działa.
 
-Wtyczka Shelly - sprawdzone po http na Gniazdku Shelly Plug M Gen3 
+Wtyczka Shelly - sprawdzone na Gniazdku Shelly Plug M Gen3 działa po http oraz mqtt
