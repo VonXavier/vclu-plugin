@@ -8,3 +8,5 @@ Integracja z BleBox - wydanie dla SwitchBox, SwitchBoxD oraz GateBox sprawdzone 
 Wtyczka InPost - pierwsze wydanie działa.
 
 Wtyczka Shelly - sprawdzone na Gniazdku Shelly Plug M Gen3 działa po http oraz mqtt
+
+Wtyczka Automatyczny Dashboard - tworzy dashboard ze wszystkim co dostępne z Vclu oraz z OM
